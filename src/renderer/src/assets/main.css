@@ -1,0 +1,161 @@
+@import 'tailwindcss';
+/* The separate mail build also renders these shared React components. */
+@source '../features/auth';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+:root {
+  --mix-background-canvas: #ffffff;
+  --mix-text-primary: #171717;
+  --mix-text-secondary: #525252;
+  --mix-text-inverse: #ffffff;
+  --mix-border-strong: #737373;
+  --mix-border-subtle: #e5e5e5;
+  --mix-surface-muted: #f5f5f5;
+  --mix-action-default: #171717;
+  --mix-action-hover: #262626;
+  --mix-radius-control: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: var(--mix-text-primary);
+  background: var(--mix-background-canvas);
+  font-size: 16px;
+  line-height: 22px;
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-size: 14px;
+}
+.auth-viewport {
+  align-items: center;
+}
+.auth-column {
+  max-width: 380px;
+}
+.mix-wordmark {
+  font-size: 40px;
+  line-height: 56px;
+  font-weight: 700;
+}
+h1 {
+  font-size: 24px;
+  line-height: 36px;
+  font-weight: 700;
+}
+.secondary {
+  color: var(--mix-text-secondary);
+}
+.auth-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mix-button {
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 16px;
+  border-radius: var(--mix-radius-control);
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+}
+.mix-button.primary {
+  background: var(--mix-action-default);
+  color: var(--mix-text-inverse);
+}
+.mix-button.primary:hover:not(:disabled) {
+  background: var(--mix-action-hover);
+}
+.mix-button.secondary {
+  border: 1px solid var(--mix-border-strong);
+  padding-block: 11px;
+  background: var(--mix-background-canvas);
+}
+.mix-button.secondary:hover:not(:disabled),
+.mix-button.text:hover:not(:disabled) {
+  background: var(--mix-surface-muted);
+}
+button:disabled,
+input:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+:where(button, input, a, .mix-feedback):focus-visible {
+  outline: 2px solid var(--mix-text-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--mix-background-canvas);
+}
+h1:focus {
+  outline: none;
+}
+.mix-field label {
+  font-weight: 500;
+  line-height: 20px;
+}
+.mix-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--mix-border-strong);
+  border-radius: var(--mix-radius-control);
+  padding: 0 12px;
+}
+.mix-input.invalid {
+  border-width: 2px;
+}
+.mix-input input {
+  min-width: 0;
+  width: 100%;
+  flex: 1;
+  height: 42px;
+  background: transparent;
+  border: 0;
+}
+.mix-input input::placeholder {
+  color: var(--mix-text-secondary);
+  opacity: 1;
+}
+.mix-input:has(input:focus-visible) {
+  outline: 2px solid var(--mix-text-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--mix-background-canvas);
+}
+.mix-input input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.password-toggle {
+  min-width: 52px;
+  height: 42px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.field-hint {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mix-text-secondary);
+}
+.mix-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--mix-border-subtle);
+  border-radius: var(--mix-radius-control);
+  background: var(--mix-surface-muted);
+  overflow-wrap: anywhere;
+}
+.mix-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  font-size: 24px;
+  line-height: 32px;
+  border: 1px solid var(--mix-border-subtle);
+  border-radius: var(--mix-radius-control);
+  background: var(--mix-surface-muted);
+}
