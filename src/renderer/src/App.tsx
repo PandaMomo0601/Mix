@@ -1,19 +1,56 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import type { AccountProfile, AuthSnapshot } from '../../shared/auth'
 import { useAuthStore } from '@renderer/stores/useAuthStore'
 import { AuthForm } from './features/auth/AuthForm'
 import { AuthFrame, Button, Feedback } from './features/auth/Controls'
+import { MePage } from './features/me/MePage'
+import { DeletionReceipt } from './features/me/DeletionDialog'
 
 function App(): React.JSX.Element {
   const snapshot = useAuthStore((s) => s.snapshot)
+  const [logoutProfile, setLogoutProfile] = useState<AccountProfile | null>(null)
+  const [loginEntryRevision, setLoginEntryRevision] = useState<number | null>(null)
   useEffect(() => {
     const apply = useAuthStore.getState().apply
-    const unsubscribe = window.mix.auth.onStateChange(apply)
-    void window.mix.auth.getState().then(apply)
+    const receive = (next: AuthSnapshot): void => {
+      apply(next)
+      if (next.status !== 'starting') setLogoutProfile(null)
+    }
+    const unsubscribe = window.mix.auth.onStateChange(receive)
+    void window.mix.auth.getState().then(receive)
     return unsubscribe
   }, [])
+  if (snapshot?.status === 'starting' && logoutProfile)
+    return <MePage key={logoutProfile.id} profile={logoutProfile} onLogoutStart={() => {}} />
   if (!snapshot || snapshot.status === 'starting')
     return <AuthFrame title="正在检查登录状态" description="请稍候…" />
-  if (snapshot.status === 'signed-out') return <AuthForm snapshot={snapshot} />
+  if (snapshot.status === 'signed-out')
+    return (
+      <DeletionReceipt onLogin={() => setLoginEntryRevision(snapshot.revision)}>
+        {loginEntryRevision !== snapshot.revision &&
+        snapshot.message &&
+        (snapshot.message.includes('已退出') || snapshot.message.includes('登录已失效')) ? (
+          <AuthFrame
+            variant="me-result"
+            title={snapshot.message.includes('登录已失效') ? '登录已失效' : '已退出当前设备'}
+            description={
+              snapshot.message.includes('登录已失效')
+                ? '请重新登录后继续。'
+                : '云端账号和接入仍然保留。'
+            }
+          >
+            <Button onClick={() => setLoginEntryRevision(snapshot.revision)}>前往登录</Button>
+          </AuthFrame>
+        ) : (
+          <AuthForm
+            snapshot={{
+              ...snapshot,
+              message: loginEntryRevision === snapshot.revision ? null : snapshot.message
+            }}
+          />
+        )}
+      </DeletionReceipt>
+    )
   if (snapshot.status !== 'signed-in' || !snapshot.profile)
     return (
       <AuthFrame
@@ -36,27 +73,7 @@ function App(): React.JSX.Element {
     )
   const profile = snapshot.profile
   return (
-    <AuthFrame title="已登录 Mix" description="账号已就绪。这里将是你的工作区。">
-      <div className="flex min-w-0 items-center gap-4">
-        <div
-          className="mix-avatar"
-          role="img"
-          aria-label="头像"
-          style={profile.avatar ? { backgroundColor: profile.avatar.bg } : undefined}
-        >
-          {profile.avatar?.emoji ?? 'M'}
-        </div>
-        <div className="mix-feedback min-w-0 flex-1">
-          <p className="truncate font-medium" title={profile.displayName}>
-            {profile.displayName}
-          </p>
-          <p className="secondary break-all">{profile.email}</p>
-        </div>
-      </div>
-      <Button variant="secondary" onClick={() => void window.mix.auth.signOut()}>
-        退出当前设备
-      </Button>
-    </AuthFrame>
+    <MePage key={profile.id} profile={profile} onLogoutStart={() => setLogoutProfile(profile)} />
   )
 }
 

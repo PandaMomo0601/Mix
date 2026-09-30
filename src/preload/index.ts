@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { AUTH_CHANNELS, type AuthBridge, type AuthSnapshot } from '../shared/auth'
+import { ME_CHANNELS, type MeBridge } from '../shared/me'
 
 const auth: AuthBridge = {
   getState: () => ipcRenderer.invoke(AUTH_CHANNELS.state),
@@ -17,4 +18,13 @@ const auth: AuthBridge = {
   }
 }
 
-contextBridge.exposeInMainWorld('mix', Object.freeze({ auth }))
+const me = Object.fromEntries(
+  Object.entries(ME_CHANNELS).map(([method, channel]) => [
+    method,
+    (input?: unknown) => ipcRenderer.invoke(channel, input)
+  ])
+) as unknown as MeBridge
+contextBridge.exposeInMainWorld(
+  'mix',
+  Object.freeze({ auth: Object.freeze(auth), me: Object.freeze(me) })
+)

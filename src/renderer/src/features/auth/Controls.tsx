@@ -10,14 +10,19 @@ import {
 export function AuthFrame({
   title,
   description,
+  variant,
   children
 }: {
   title: string
   description?: string
+  variant?: 'me-result'
   children?: ReactNode
 }): React.JSX.Element {
   return (
-    <main className="auth-viewport flex min-h-dvh flex-col p-6" data-theme="light">
+    <main
+      className={`auth-viewport flex min-h-dvh flex-col p-6 ${variant ?? ''}`}
+      data-theme="light"
+    >
       <section
         className="auth-column my-auto flex w-full shrink-0 flex-col gap-4"
         aria-labelledby="auth-title"
@@ -50,7 +55,7 @@ export function Feedback({
   title = '提示',
   error = false
 }: {
-  message: string
+  message: ReactNode
   title?: string
   error?: boolean
 }): React.JSX.Element {
@@ -72,28 +77,32 @@ export function Field({
   hint,
   type,
   name,
+  passwordToggle = true,
+  invalid = false,
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & {
   label: string
   name: string
   error?: string
   hint?: string
+  passwordToggle?: boolean
+  invalid?: boolean
 }): React.JSX.Element {
   const [visible, setVisible] = useState(false)
   const password = type === 'password'
   return (
     <div className="mix-field flex flex-col gap-2">
       <label htmlFor={name}>{label}</label>
-      <div className={`mix-input ${error ? 'invalid' : ''}`}>
+      <div className={`mix-input ${error || invalid ? 'invalid' : ''}`}>
         <input
           {...props}
           id={name}
           name={name}
           type={password && visible ? 'text' : type}
-          aria-invalid={Boolean(error)}
+          aria-invalid={Boolean(error || invalid)}
           aria-describedby={error || hint ? `${name}-hint` : undefined}
         />
-        {password && (
+        {password && passwordToggle && (
           <button
             className="password-toggle"
             type="button"

@@ -35,6 +35,8 @@ async function fakeFetch(input) {
       ? reply({ code: 'invalid_credentials', message: 'Invalid fixture credentials' }, 400)
       : reply(session())
   if (url.pathname.endsWith('/user')) return reply(user)
+  if (url.pathname === '/rest/v1/rpc/mix_account_available') return reply(true)
+  if (url.pathname === '/rest/v1/rpc/mix_account_status') return reply('active')
   if (url.pathname.endsWith('/logout')) return new Response(null, { status: 204, headers })
   if (url.pathname.endsWith('/signup')) return reply(user)
   if (url.pathname.endsWith('/resend') || url.pathname.endsWith('/recover')) return reply({})

@@ -89,7 +89,7 @@ try {
     globalThis.__authMock.badCredentials = false
   })
   await login(page)
-  await visible(page, '已登录 Mix')
+  await visible(page, '账号信息')
   await page.getByText('示例用户', { exact: true }).waitFor()
   assert.equal(await page.evaluate(() => localStorage.length), 0)
   const publicState = await page.evaluate(() => window.mix.auth.getState())
@@ -116,7 +116,7 @@ try {
 
   await app.close()
   page = await launch()
-  await visible(page, '已登录 Mix')
+  await visible(page, '账号信息')
   passed.push('Process restart restores encrypted session and revalidates via mocked Auth')
 
   const rejected = await app.evaluate(

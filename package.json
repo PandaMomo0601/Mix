@@ -21,6 +21,8 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
     "test:electron": "node tests/electron-smoke.mjs",
+    "test:me": "node tests/electron-me.mjs",
+    "preview:me": "npm run build && node scripts/me-preview.mjs",
     "test:qa:mac": "node tests/electron-qa.mjs",
     "dev:auth-web": "vite --config vite.auth.config.ts --host 127.0.0.1",
     "build:auth-web": "vite build --config vite.auth.config.ts",

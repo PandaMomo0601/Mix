@@ -3,6 +3,11 @@ import { failure, LocalAuthError, mapAuthError } from '../../shared/auth-errors'
 import { normalizeAccountProfile } from '../../shared/profile'
 import type { AuthConfig } from './config'
 import type { AuthRuntime } from './client'
+import type { AccountProfile } from '../../shared/auth'
+import type { MeResult, ProfileWriteResult } from '../../shared/me'
+import { MeError, meFailed } from '../../shared/me-errors'
+import { normalizeName, parseAvatar } from '../../shared/me-validation'
+import { verifyDeletionPassword } from './reauthentication'
 
 async function deadline<T>(promise: Promise<T>, ms = 16000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -26,6 +31,9 @@ export class AuthService {
   private logoutPromise: Promise<AuthResult> | null = null
   private cleanupPromise: Promise<void> = Promise.resolve()
   private listeners = new Set<(state: AuthSnapshot) => void>()
+  private authenticatedRequests = new Set<AbortController>()
+  private removedListeners = new Set<(userId: string) => Promise<void>>()
+  private profileQueue: Promise<unknown> = Promise.resolve()
   private state: AuthSnapshot
 
   constructor(
@@ -54,6 +62,38 @@ export class AuthService {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
+  onAccountRemoved(listener: (userId: string) => Promise<void>): () => void {
+    this.removedListeners.add(listener)
+    return () => this.removedListeners.delete(listener)
+  }
+  private async confirmRemoval(
+    runtime: AuthRuntime,
+    userId: string,
+    epoch: number,
+    token: string
+  ): Promise<void> {
+    let status: unknown
+    try {
+      // getUser may already have cleared the SDK session. Keep the verified request's
+      // token only for this read-only status check; it never leaves the main process.
+      const response = await deadline(
+        Promise.resolve(
+          runtime.client.rpc('mix_account_status').setHeader('Authorization', 'Bearer ' + token)
+        )
+      )
+      if (response.error || epoch !== this.epoch) return
+      status = response.data
+    } catch {
+      return
+    }
+    if (status === 'deleting' || status === 'deleted') {
+      try {
+        await Promise.all([...this.removedListeners].map((listener) => listener(userId)))
+      } catch {
+        throw new LocalAuthError('storage')
+      }
+    }
+  }
 
   private publish(
     status: AuthSnapshot['status'],
@@ -80,7 +120,7 @@ export class AuthService {
         // Never await an Auth API from the SDK's callback. Old lifetimes are ignored.
         if (['SIGNED_OUT', 'TOKEN_REFRESHED', 'USER_UPDATED'].includes(event)) {
           queueMicrotask(() => {
-            if (epoch === this.epoch && !this.busy) void this.retry()
+            if (epoch === this.epoch && !this.busy) void this.retry(true)
           })
         }
       })
@@ -92,6 +132,8 @@ export class AuthService {
     const old = this.runtime
     this.runtime = null
     this.epoch++
+    for (const controller of this.authenticatedRequests) controller.abort()
+    this.authenticatedRequests.clear()
     if (old) {
       old.storage.freeze()
       old.abortRequests()
@@ -109,7 +151,11 @@ export class AuthService {
       return false
     }
     const current = await runtime.client.auth.getUser()
-    if (current.error) throw current.error
+    if (current.error) {
+      if (mapAuthError(current.error).code === 'session-expired')
+        await this.confirmRemoval(runtime, data.session.user.id, epoch, data.session.access_token)
+      throw current.error
+    }
     if (epoch !== this.epoch) throw new LocalAuthError('cancelled')
     const user = current.data.user
     if (!user || user.id !== data.session.user.id || !user.email || user.is_anonymous)
@@ -243,6 +289,159 @@ export class AuthService {
       this.logoutPromise = null
     })
     return this.logoutPromise
+  }
+
+  // Main-only capability. Neither sessions nor this callback cross the preload boundary.
+  async authenticated<T>(
+    action: (
+      identity: { userId: string; token: string; signal: AbortSignal; epoch: number },
+      runtime: AuthRuntime
+    ) => Promise<T>
+  ): Promise<T> {
+    if (this.state.status !== 'signed-in' || !this.state.profile || !this.runtime)
+      throw new MeError('unauthorized')
+    const epoch = this.epoch,
+      runtime = this.runtime,
+      userId = this.state.profile.id
+    const controller = new AbortController()
+    this.authenticatedRequests.add(controller)
+    try {
+      const { data, error } = await deadline(runtime.client.auth.getSession())
+      if (error)
+        throw new MeError(
+          mapAuthError(error).code === 'session-expired' ? 'unauthorized' : 'provider_unavailable'
+        )
+      if (!data.session || data.session.user.id !== userId) throw new MeError('unauthorized')
+      const current = await deadline(runtime.client.auth.getUser())
+      if (current.error) {
+        if (mapAuthError(current.error).code !== 'session-expired')
+          throw new MeError('provider_unavailable')
+        await this.confirmRemoval(runtime, userId, epoch, data.session.access_token)
+        throw new MeError('unauthorized')
+      }
+      if (current.data.user?.id !== userId) throw new MeError('unauthorized')
+      const gate = await deadline(Promise.resolve(runtime.client.rpc('mix_account_available')))
+      if (gate.error)
+        throw new MeError(gate.error.code === 'PGRST202' ? 'not_ready' : 'provider_unavailable')
+      if (gate.data !== true) {
+        await this.confirmRemoval(runtime, userId, epoch, data.session.access_token)
+        throw new MeError('unauthorized')
+      }
+      if (epoch !== this.epoch || controller.signal.aborted) throw new MeError('cancelled')
+      const result = await action(
+        { userId, token: data.session.access_token, signal: controller.signal, epoch },
+        runtime
+      )
+      if (epoch !== this.epoch || controller.signal.aborted) throw new MeError('cancelled')
+      return result
+    } catch (error) {
+      if (epoch === this.epoch && error instanceof MeError && error.code === 'unauthorized')
+        await this.handleFailure(new LocalAuthError('session-expired'), true)
+      throw error
+    } finally {
+      this.authenticatedRequests.delete(controller)
+    }
+  }
+
+  async refreshProfile(): Promise<MeResult<AccountProfile>> {
+    try {
+      const profile = await this.authenticated(async (_identity, runtime) => {
+        const { data, error } = await deadline(runtime.client.auth.getUser())
+        if (error)
+          throw new MeError(
+            mapAuthError(error).code === 'session-expired' ? 'unauthorized' : 'provider_unavailable'
+          )
+        if (!data.user) throw new MeError('unauthorized')
+        return normalizeAccountProfile(data.user)
+      })
+      this.publish('signed-in', null, profile)
+      return { ok: true, data: profile }
+    } catch (error) {
+      return meFailed(error)
+    }
+  }
+
+  async reauthenticateForDeletion(password: string): Promise<MeResult<{ verified: true }>> {
+    try {
+      if (!password || Buffer.byteLength(password) > 4096) throw new MeError('invalid_input')
+      if (!this.config || !this.state.profile?.email) throw new MeError('unauthorized')
+      const config = this.config,
+        email = this.state.profile.email
+      await this.authenticated(async (identity) => {
+        await verifyDeletionPassword(config, email, password, identity.userId, identity.signal)
+      })
+      return { ok: true, data: { verified: true } }
+    } catch (error) {
+      return meFailed(error)
+    }
+  }
+
+  updateNickname(value: unknown): Promise<MeResult<ProfileWriteResult>> {
+    try {
+      return this.updateProfileField('nickname', normalizeName(value))
+    } catch (error) {
+      return Promise.resolve(meFailed(error))
+    }
+  }
+  updateAvatar(value: unknown): Promise<MeResult<ProfileWriteResult>> {
+    try {
+      return this.updateProfileField('avatar', parseAvatar(value))
+    } catch (error) {
+      return Promise.resolve(meFailed(error))
+    }
+  }
+  private updateProfileField(
+    field: 'nickname' | 'avatar',
+    value: string | NonNullable<AccountProfile['avatar']>
+  ): Promise<MeResult<ProfileWriteResult>> {
+    const queuedEpoch = this.epoch
+    const work = this.profileQueue
+      .catch(() => {})
+      .then(async (): Promise<MeResult<ProfileWriteResult>> => {
+        if (queuedEpoch !== this.epoch) return meFailed(new MeError('cancelled'))
+        const old = this.state.profile
+        if (!old) return meFailed(new MeError('unauthorized'))
+        if (JSON.stringify(old[field]) === JSON.stringify(value))
+          return { ok: true, data: { outcome: 'unchanged', profile: old } }
+        try {
+          const saved = await this.authenticated(async (_identity, runtime) => {
+            // Only the changed field is sent; stale metadata must not overwrite another device.
+            const { data, error } = await deadline(
+              runtime.client.auth.updateUser({ data: { [field]: value } })
+            )
+            if (error || !data.user) throw error ?? new MeError('unknown')
+            const profile = normalizeAccountProfile(data.user)
+            try {
+              const fresh = await deadline(runtime.client.auth.getUser())
+              if (!fresh.error && fresh.data.user)
+                return {
+                  outcome: 'saved' as const,
+                  profile: normalizeAccountProfile(fresh.data.user)
+                }
+            } catch {
+              /* A confirmed write and a failed refresh are different outcomes. */
+            }
+            return { outcome: 'syncing' as const, profile }
+          })
+          this.publish('signed-in', null, saved.profile)
+          return { ok: true, data: saved }
+        } catch (error) {
+          if (queuedEpoch !== this.epoch) return meFailed(new MeError('cancelled'))
+          // A transport/persistence failure may occur after Auth committed. Read before retrying.
+          const refreshed = await this.refreshProfile()
+          if (refreshed.ok && JSON.stringify(refreshed.data[field]) === JSON.stringify(value))
+            return { ok: true, data: { outcome: 'saved', profile: refreshed.data } }
+          const mapped = mapAuthError(error)
+          if (mapped.code === 'session-expired') {
+            await this.handleFailure(error, true)
+            return meFailed(new MeError('unauthorized'))
+          }
+          if (mapped.code === 'rate-limit') return meFailed(new MeError('rate_limited'))
+          return meFailed(error instanceof MeError ? error : new MeError('unknown'))
+        }
+      })
+    this.profileQueue = work
+    return work
   }
 
   private async performSignOut(): Promise<AuthResult> {

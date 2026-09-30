@@ -1,6 +1,7 @@
 node_modules
 dist
 out
+/output/playwright/
 .DS_Store
 .eslintcache
 *.log*

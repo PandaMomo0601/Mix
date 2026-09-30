@@ -15,6 +15,16 @@ const state = {
 
 async function fakeFetch(input, init = {}) {
   const url = new URL(typeof input === 'string' ? input : input.url || String(input))
+  if (url.pathname === '/rest/v1/rpc/mix_account_available')
+    return new Response(JSON.stringify(true), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })
+  if (url.pathname === '/rest/v1/rpc/mix_account_status')
+    return new Response(JSON.stringify('active'), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })
   if (!url.pathname.startsWith('/auth/v1/')) throw Error('Unexpected QA network destination')
   const operation = url.pathname.split('/').at(-1)
   const body = typeof init.body === 'string' ? JSON.parse(init.body) : {}

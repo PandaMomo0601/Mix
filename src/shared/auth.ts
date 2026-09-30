@@ -2,6 +2,7 @@ export interface AccountProfile {
   id: string
   email: string
   displayName: string
+  nickname: string | null
   avatar: { emoji: string; bg: string } | null
   emailConfirmedAt: string | null
 }

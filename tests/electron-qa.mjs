@@ -144,7 +144,7 @@ try {
   assert.equal((await requests()).length, initial)
   await page.locator('form').dispatchEvent('compositionend')
   await page.keyboard.press('Enter')
-  await visible('已登录 Mix')
+  await visible('账号信息')
   assert.equal(
     (await requests()).some((r) => r.operation === 'token' && r.passwordUnchanged),
     true
@@ -292,7 +292,7 @@ try {
   ]) {
     await configure({ metadata })
     await login()
-    await visible('已登录 Mix')
+    await visible('账号信息')
     const snapshot = await page.evaluate(() => window.mix.auth.getState())
     assert.equal(/access_token|refresh_token|user_metadata/.test(JSON.stringify(snapshot)), false)
     if (name === 'missing') {
@@ -323,7 +323,7 @@ try {
 
   await configure({ metadata: { nickname: '示例用户', avatar: { emoji: '🐼', bg: '#E3F2FD' } } })
   await login()
-  await visible('已登录 Mix')
+  await visible('账号信息')
   const authDir = join(profile, 'auth')
   const files = await readdir(authDir)
   storageFile = join(
@@ -341,7 +341,7 @@ try {
   await capture('09-packaged-offline.png')
   await configure({ offline: false })
   await page.getByRole('button', { name: '重试', exact: true }).click()
-  await visible('已登录 Mix')
+  await visible('账号信息')
   await configure({ offline: true })
   await page.getByRole('button', { name: '退出当前设备', exact: true }).click()
   await visible('欢迎回来')
